@@ -8,7 +8,7 @@ router.post('/create-payment-intent', async (req, res) => {
    } catch (error) {
        console.error("Error in /create-payment-intent route:", error);
        res.status(500).json({ error: "Failed to create payment intent" });
-   }
+   }    
 });
 
 module.exports = router;
