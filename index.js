@@ -19,11 +19,15 @@ const usersRouter = require('./routes/Users');
 const authRouter = require('./routes/Auth');
 const cartRouter = require('./routes/Cart');
 const ordersRouter = require('./routes/Order');
+const paymentRouter = require('./routes/PaymentRoute'); // Import payment routes
 const { User } = require('./model/User');
 const { isAuth, sanitizeUser, cookieExtractor } = require('./services/common');
 const path = require('path');
 const { Order } = require('./model/Order');
 const { env } = require('process');
+
+// Initialize Stripe
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 // Webhook
 
@@ -72,7 +76,7 @@ const opts = {};
 opts.jwtFromRequest = cookieExtractor;
 opts.secretOrKey = process.env.JWT_SECRET_KEY; 
 
-//middlewares
+// Middlewares
 
 server.use(express.static(path.resolve(__dirname, 'build')));
 server.use(cookieParser());
@@ -91,17 +95,17 @@ server.use(
 );
 server.use(express.json()); // to parse req.body
 
+// Routes
 server.use('/products', isAuth(), productsRouter.router);
-// we can also use JWT token for client-only auth
 server.use('/categories', isAuth(), categoriesRouter.router);
 server.use('/brands', isAuth(), brandsRouter.router);
 server.use('/users', isAuth(), usersRouter.router);
-
 server.use('/auth', authRouter.router);
 server.use('/cart', isAuth(), cartRouter.router);
 server.use('/orders', isAuth(), ordersRouter.router);
+server.use('/payments', paymentRouter); // Use payment routes
 
-// this line we add to make react router work in case of other routes doesnt match
+// Fallback for React Router
 server.get('*', (req, res) =>
   res.sendFile(path.resolve('build', 'index.html'))
 );
@@ -161,14 +165,12 @@ passport.use(
   })
 );
 
-// this creates session variable req.user on being called from callbacks
+// Serialize and Deserialize User
 passport.serializeUser(function (user, cb) {
   process.nextTick(function () {
     return cb(null, { id: user.id, role: user.role });
   });
 });
-
-// this changes session variable req.user when called from authorized request
 
 passport.deserializeUser(function (user, cb) {
   process.nextTick(function () {
@@ -176,38 +178,14 @@ passport.deserializeUser(function (user, cb) {
   });
 });
 
-// Payments
-
-// This is your test secret API key.
-const stripe = require('stripe')(process.env.STRIPE_SERVER_KEY);
-
-server.post('/create-payment-intent', async (req, res) => {
-  const { totalAmount, orderId } = req.body;
-
-  // Create a PaymentIntent with the order amount and currency
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount: totalAmount * 100, // for decimal compensation
-    currency: 'inr',
-    automatic_payment_methods: {
-      enabled: true,
-    },
-    metadata: {
-      orderId,
-    },
-  });
-
-  res.send({
-    clientSecret: paymentIntent.client_secret,
-  });
-});
-
+// Start the server
 main().catch((err) => console.log(err));
 
 async function main() {
   await mongoose.connect(process.env.MONGODB_URL);
-  console.log('database connected');
+  console.log('Database connected');
 }
 
 server.listen(process.env.PORT, () => {
-  console.log('server started');
+  console.log('Server started');
 });
