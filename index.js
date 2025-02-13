@@ -1,8 +1,11 @@
 require('dotenv').config();
 const express = require('express');
+const multer = require("multer");
+const nodemailer = require("nodemailer");
 const server = express();
 const mongoose = require('mongoose');
 const cors = require('cors');
+const fs = require("fs");
 const session = require('express-session');
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
@@ -26,9 +29,16 @@ const path = require('path');
 const { Order } = require('./model/Order');
 const { env } = require('process');
 
+console.log("EMAIL:", process.env.EMAIL); // Debugging
+console.log("PASSWORD:", process.env.PASSWORD ? "Loaded" : "Missing");
+console.log("ADMIN_EMAIL:", process.env.ADMIN_EMAIL);
+
 // Initialize Stripe
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+const upload = multer({ dest: "uploads/" });
+server.use(cors());
+server.use(express.json());
 // Webhook
 
 const endpointSecret = process.env.ENDPOINT_SECRET;
@@ -179,6 +189,57 @@ passport.deserializeUser(function (user, cb) {
   });
 });
 
+server.post("/upload", upload.single("file"), async (req, res) => {
+  const { email, randomNumber } = req.body;
+  const file = req.file;
+  const adminEmail = process.env.ADMIN_EMAIL;
+
+  if (!email || !randomNumber || !file) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+
+  // Step 1: Configure Nodemailer Transporter
+  const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587, // Use 465 for SSL, 587 for TLS
+    secure: false, // Use `true` for port 465
+    auth: {
+      user: process.env.EMAIL,
+      pass: process.env.PASSWORD, // Must be an App Password
+    },
+  });
+
+  // Step 2: Define Mail Options (Adding sender in CC)
+  const mailOptions = {
+    from: process.env.EMAIL,
+    to: adminEmail, // Email sent to admin
+    cc: email, // Sender's email in CC
+    subject: "New STL File Submission",
+    text: `You received a new STL file submission.\n\nUser Email: ${email}\nRandom Number: ${randomNumber}`,
+    attachments: [
+      {
+        filename: file.originalname,
+        path: file.path,
+      },
+    ],
+  };
+  try {
+    // Step 3: Send the Email
+    await transporter.sendMail(mailOptions);
+    console.log("Sender is :", email);
+    res.json({ message: "Email sent successfully to admin & sender (CC)!" });
+  } catch (error) {
+    console.error("Error sending email:", error);
+    res.status(500).json({ message: "Failed to send email" });
+  } finally {
+    // Step 4: Ensure File is Deleted (whether success or error)
+    fs.unlink(file.path, (err) => {
+      if (err) console.error("Error deleting file:", err);
+      else console.log("File deleted successfully.");
+    });
+  }
+});
+
 // Start the server
 main().catch((err) => console.log(err));
 
@@ -190,3 +251,4 @@ async function main() {
 server.listen(process.env.PORT, () => {
   console.log('Server started');
 });
+
